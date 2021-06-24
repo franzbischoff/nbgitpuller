@@ -61,10 +61,10 @@ class Pusher(Repository):
 
 
 class Puller(Repository):
-    def __init__(self, remote, path='puller', *args, **kwargs):
+    def __init__(self, remote, path='puller', branch="master", *args, **kwargs):
         super().__init__(path)
         remotepath = "file://%s" % os.path.abspath(remote.path)
-        self.gp = GitPuller(remotepath, 'master', path, *args, **kwargs)
+        self.gp = GitPuller(remotepath, path, branch=branch, *args, **kwargs)
 
     def pull_all(self):
         for line in self.gp.pull():
@@ -94,6 +94,90 @@ def test_initialize():
             assert os.path.exists(os.path.join(puller.path, 'README.md'))
             assert puller.git('name-rev', '--name-only', 'HEAD') == 'master'
             assert puller.git('rev-parse', 'HEAD') == pusher.git('rev-parse', 'HEAD')
+
+
+def command_line_test_helper(remote_path, branch, pusher_path):
+    work_dir = "/".join(os.path.dirname(os.path.abspath(__file__)).split("/")[:-1]) + "/nbgitpuller"
+    try:
+        cmd = ['python3', 'pull.py', remote_path, branch, pusher_path]
+        sp.check_output(
+            cmd,
+            cwd=work_dir
+        ).decode()
+        return True
+    except Exception:
+        return False
+
+
+def test_command_line_existing_branch():
+    branch = "master"
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        remotepath = "file://%s" % os.path.abspath(remote.path)
+        pusherpath = os.path.abspath(pusher.path)
+        subprocess_result = command_line_test_helper(remotepath, branch, pusherpath)
+    assert subprocess_result
+
+
+def test_command_line_default_branch():
+    branch = ""
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        remotepath = "file://%s" % os.path.abspath(remote.path)
+        pusherpath = os.path.abspath(pusher.path)
+        subprocess_result = command_line_test_helper(remotepath, branch, pusherpath)
+    assert subprocess_result
+
+
+def test_command_line_non_existing_branch():
+    branch = "wrong"
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        remotepath = "file://%s" % os.path.abspath(remote.path)
+        pusherpath = os.path.abspath(pusher.path)
+        subprocess_result = command_line_test_helper(remotepath, branch, pusherpath)
+    assert not subprocess_result
+
+
+def test_branch_exists():
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        with Puller(remote, 'puller') as puller:
+            assert not puller.gp.branch_exists("wrong")
+            assert puller.gp.branch_exists("master")
+
+
+def test_exception_branch_exists():
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        with Puller(remote, 'puller') as puller:
+            orig_url = puller.gp.git_url
+            puller.gp.git_url = ""
+            try:
+                puller.gp.branch_exists("wrong")
+            except Exception as e:
+                assert type(e) == ValueError
+            puller.gp.git_url = orig_url
+
+
+def test_resolve_default_branch():
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        with Puller(remote, 'puller') as puller:
+            assert puller.gp.resolve_default_branch() == "master"
+
+
+def test_exception_resolve_default_branch():
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', '1')
+        with Puller(remote, 'puller') as puller:
+            orig_url = puller.gp.git_url
+            puller.gp.git_url = ""
+            try:
+                puller.gp.resolve_default_branch()
+            except Exception as e:
+                assert type(e) == ValueError
+            puller.gp.git_url = orig_url
 
 
 def test_simple_push_pull():
